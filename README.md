@@ -39,6 +39,12 @@ on:
         required: true
         type: string
 
+# Nodig: een aangeroepen workflow kan niet meer rechten krijgen dan de aanroeper heeft, en
+# de meeste repo's staan standaard op read. Zonder deze regel eindigt de run als
+# startup_failure: geen job, geen log, en een melding die alleen zegt "No jobs were run".
+permissions:
+  contents: write
+
 jobs:
   fix:
     uses: ShaneDeconinck/elixir-fix/.github/workflows/fix.yml@v1

@@ -61,6 +61,24 @@ on:
         required: false
         default: ''
         type: string
+      mysql:
+        description: |
+          De naam van de databank die de tests nodig hebben, of leeg voor een project dat
+          zonder kan. Twee Laravel-projecten in deze vloot testen tegen een echte MySQL en
+          niet tegen sqlite, omdat die twee het oneens zijn op precies de plekken die pas in
+          productie opvallen: sqlite bewaart wat je erin duwt, MySQL heeft kolomtypes en
+          zegt nee.
+
+          Een aangeroepen workflow kan geen `services:` van de aanroeper krijgen, dus start
+          hij de databank zelf.
+        required: false
+        default: ''
+        type: string
+      schema:
+        description: 'Pad naar een sql-bestand dat na het starten ingelezen wordt, of leeg'
+        required: false
+        default: ''
+        type: string
     outputs:
       uitslag:
         description: 'Wat er gebeurde, als json'
@@ -116,6 +134,28 @@ jobs:
         run: printf '%s\n' "$OMGEVING" >> "$GITHUB_ENV"
 
       - run: ${{ inputs.install }}
+
+      # De databank, als de tests er een nodig hebben. In docker en niet als service, want
+      # een aangeroepen workflow kan geen `services:` van de aanroeper overnemen.
+      - name: Databank starten
+        if: inputs.mysql != ''
+        env:
+          DB: ${{ inputs.mysql }}
+          SCHEMA: ${{ inputs.schema }}
+        run: |
+          set -euo pipefail
+          docker run -d --name elixir-mysql \
+            -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE="$DB" \
+            -p 3306:3306 mysql:8 >/dev/null
+          # Wachten tot ze antwoordt: een testrun die op een halfwakkere databank botst,
+          # faalt om een reden die niets met de update te maken heeft.
+          for i in $(seq 1 60); do
+            docker exec elixir-mysql mysqladmin ping -proot --silent >/dev/null 2>&1 && break
+            sleep 2
+          done
+          if [ -n "$SCHEMA" ] && [ -f "$SCHEMA" ]; then
+            docker exec -i elixir-mysql mysql -uroot -proot "$DB" < "$SCHEMA"
+          fi
 
       - name: Klaarzetten
         if: inputs.prepare != ''

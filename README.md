@@ -83,6 +83,24 @@ Composer kent geen overrides: een transitief pakket wordt bijgewerkt met `update
 gepind. En het teruglezen telt daar "minstens zo nieuw", want `require ^7.29` mag 7.29.4
 opleveren; dat is geen mislukking maar precies wat een caret betekent.
 
+Testen tegen een echte databank:
+
+```yaml
+    with:
+      plan: ${{ inputs.plan }}
+      php-version: '8.4'
+      mysql: forge_test
+      schema: database/schema/mysql-schema.sql
+      env: |
+        DB_HOST=127.0.0.1
+        DB_DATABASE=forge_test
+        DB_USERNAME=root
+        DB_PASSWORD=root
+```
+
+Een aangeroepen workflow kan geen `services:` van de aanroeper krijgen, dus start hij de
+databank zelf in docker en wacht tot ze antwoordt.
+
 `env` is voor publieke configuratie, niet voor geheimen: wat daar staat komt uit het
 workflow-bestand van je project en is dus voor iedereen leesbaar. Een echte sleutel hoort in
 de secrets van de repo, en die heeft deze workflow niet nodig.

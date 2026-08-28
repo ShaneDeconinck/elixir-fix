@@ -1,0 +1,135 @@
+# Beveiligingsupdates uitvoeren in de repo die ze aangaan.
+#
+# Elixir meet de kwetsbaarheden en beslist welk pakket naar welke versie mag. Dat oordeel
+# blijft daar. Dit is de andere helft: de handen, en die horen niet op de machine te draaien
+# waar de sleutels van de hele vloot staan. Eén postinstall-script in één afhankelijkheid
+# van één project leest ze anders allemaal.
+#
+# Hier bestaat die map niet. De runner wordt na afloop weggegooid, en de enige sleutel is de
+# token die GitHub voor deze ene run uitdeelt.
+#
+# Aansluiten: zie de README.
+name: Elixir fix
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: 'JSON: [{"pkg":"tar","to":"7.5.21","lock":"package-lock.json"}]'
+        required: true
+        type: string
+      node-version:
+        description: 'De node-versie waarop dit project bouwt'
+        required: false
+        default: '24'
+        type: string
+      install:
+        description: 'Hoe dit project zijn pakketten installeert'
+        required: false
+        default: 'npm install --no-audit --no-fund'
+        type: string
+      test:
+        description: 'Het commando dat de rechter is'
+        required: false
+        default: 'npm test'
+        type: string
+      build:
+        description: 'De build, of leeg als dit project er geen heeft'
+        required: false
+        default: 'npm run build'
+        type: string
+    outputs:
+      uitslag:
+        description: 'Wat er gebeurde, als json'
+        value: ${{ jobs.fix.outputs.uitslag }}
+      branch:
+        description: 'De tak met het werk, of leeg als er niets veranderde'
+        value: ${{ jobs.fix.outputs.branch }}
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    # Alleen schrijven naar de repo. Voorstellen doet Elixir, met zijn eigen sleutel: een
+    # pull request van de GITHUB_TOKEN zet geen checks in gang, en dan staat er een voorstel
+    # zonder oordeel. Bovendien is "mag pull requests maken" bij GitHub dezelfde schakelaar
+    # als "mag ze goedkeuren", en dat is breder dan dit werk vraagt.
+    permissions:
+      contents: write
+    outputs:
+      uitslag: ${{ steps.fix.outputs.uitslag }}
+      branch: ${{ steps.tak.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # De handen komen uit deze repo, zodat een verbetering eraan alle projecten bereikt
+      # zonder dat er ergens een kopie ligt te verouderen.
+      - uses: actions/checkout@v4
+        with:
+          repository: ShaneDeconinck/elixir-fix
+          ref: v1
+          path: .elixir-fix
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+
+      - run: ${{ inputs.install }}
+
+      # De nulmeting. Staan de tests al rood vóór de wijziging, dan is er geen rechter
+      # beschikbaar en gebeurt er niets: anders veroordeelt de update een fout die er al was.
+      - name: Tests vooraf
+        run: ${{ inputs.test }}
+
+      - name: Pakketten bijwerken
+        id: fix
+        env:
+          PLAN: ${{ inputs.plan }}
+        run: node .elixir-fix/scripts/elixir-fix.mjs
+
+      - name: Tests achteraf
+        run: ${{ inputs.test }}
+
+      # Bouwen, want een versiesprong breekt zelden een unit test en vaak een import.
+      - name: Bouwen
+        if: inputs.build != ''
+        run: ${{ inputs.build }}
+
+      - name: Tak omhoog duwen
+        id: tak
+        env:
+          UITSLAG: ${{ steps.fix.outputs.uitslag }}
+        run: |
+          set -euo pipefail
+          # Sterretjes en niet **/: een pathspec met ** faalt als hij niets vindt, terwijl
+          # *package.json op elke diepte matcht en zwijgt als er niets is.
+          if git diff --quiet -- '*package.json' '*package-lock.json' '*composer.json' '*composer.lock'; then
+            echo "de commando's veranderden niets aan de lockfiles, dus er is niets voor te stellen"
+            exit 0
+          fi
+          BRANCH="elixir/security-$(date +%Y-%m-%d-%H%M)"
+          git config user.name "elixir"
+          git config user.email "elixir@abovebeyond.ai"
+          git checkout -b "$BRANCH"
+          git diff --name-only -z -- '*package.json' '*package-lock.json' '*composer.json' '*composer.lock' \
+            | xargs -0 -r git add --
+          git commit -m "Beveiligingsupdates" -m "$UITSLAG"
+          git push -u origin "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      # Wat Elixir moet weten om het voorstel te openen en later te kunnen oordelen: wat er
+      # gebeurde, en op welke tak het staat. Als artifact en niet als log, want een log is
+      # voor mensen en verandert zodra iemand een regel mooier maakt.
+      - name: Uitslag bewaren
+        if: always()
+        env:
+          UITSLAG: ${{ steps.fix.outputs.uitslag }}
+          BRANCH: ${{ steps.tak.outputs.branch }}
+        run: |
+          node -e 'const u=JSON.parse(process.env.UITSLAG||"{}"); u.branch=process.env.BRANCH||null; require("fs").writeFileSync("uitslag.json", JSON.stringify(u, null, 2))'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: elixir-fix
+          path: uitslag.json

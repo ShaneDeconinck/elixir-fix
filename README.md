@@ -1,0 +1,89 @@
+# elixir-fix
+
+Beveiligingsupdates uitvoeren **in de repo die ze aangaan**, niet op de machine die de sleutels bewaart.
+
+## Waarom
+
+Een agent die kwetsbare pakketten bijwerkt, draait `npm install` op afhankelijkheden die
+iemand anders schreef. Doet hij dat op de machine waar de tokens van een hele vloot staan,
+dan leest één `postinstall`-script ze allemaal. Dat is geen theoretisch scenario: het is de
+gewone manier waarop supply-chain-aanvallen werken.
+
+Hier bestaat die map niet. De runner is een wegwerp-VM van dit project, de enige sleutel is
+de token die GitHub voor deze ene run uitdeelt, en na afloop is alles weg.
+
+## Rolverdeling
+
+| | wie | waarom |
+|---|---|---|
+| het plan: welk pakket, naar welke versie | Elixir | dat is een oordeel, en oordelen horen bij de meting |
+| installeren, testen, bouwen, teruglezen | deze workflow | daar bestaat de geheimenmap niet |
+| het voorstel openen | Elixir | een pull request is een bewering, en die hoort bij wie ze kan verantwoorden |
+| bevestigen of weerleggen | de volgende meting | de rechter is nooit de hand |
+
+De workflow krijgt daarom alleen `contents: write`. Voorstellen mag ze niet, en dat is
+opzet: bij GitHub is "mag pull requests maken" dezelfde schakelaar als "mag ze goedkeuren",
+en een pull request die met de `GITHUB_TOKEN` geopend wordt zet geen checks in gang.
+
+## Aansluiten
+
+Zet dit in `.github/workflows/elixir-fix.yml` van je project:
+
+```yaml
+name: Elixir fix
+
+on:
+  workflow_dispatch:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  fix:
+    uses: ShaneDeconinck/elixir-fix/.github/workflows/fix.yml@v1
+    with:
+      plan: ${{ inputs.plan }}
+```
+
+Draait je project anders, dan zeg je dat erbij:
+
+```yaml
+    with:
+      plan: ${{ inputs.plan }}
+      node-version: '22'
+      install: npm ci
+      test: npm run test:unit
+      build: ''          # leeg = geen build
+```
+
+## De poorten
+
+Elke stap is er een, en ze staan in deze volgorde omdat elke volgende duurder is:
+
+1. **nulmeting** — staan de tests al rood, dan is er geen rechter en gebeurt er niets
+2. **bijwerken** — direct installeren, transitief overriden
+3. **tests opnieuw** — rood betekent: niets voorstellen
+4. **bouwen** — een versiesprong breekt zelden een unit test en vaak een import
+5. **teruglezen** — staat de nieuwe versie echt in de lockfile, of zei npm alleen ja?
+6. **pas dan** een tak omhoog
+
+Wat de workflow weigert, zegt ze erbij. Een override geldt bijvoorbeeld voor álle kopieën
+van een pakket in de boom; draagt de lockfile er twee majors van, dan gebeurt er niets en
+staat de reden in de uitslag.
+
+## Uitslag
+
+Als artifact `elixir-fix` met één `uitslag.json`:
+
+```json
+{
+  "applied": [{"pkg": "tar", "to": "7.5.21", "lock": "package-lock.json", "direct": false}],
+  "failed": [{"pkg": "brace-expansion", "why": "de boom draagt 2 en 5.x van dit pakket"}],
+  "unproven": [],
+  "branch": "elixir/security-2026-08-28-1308"
+}
+```
+
+`unproven` is het bewijs dat ontbrak: het pakket werd bijgewerkt, maar de lockfile draagt de
+oude versie nog. Beweren is niet bewijzen.

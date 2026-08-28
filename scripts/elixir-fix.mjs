@@ -10,7 +10,7 @@
 // klantproject las ze allemaal. Hier bestaat die map niet.
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 const plan = JSON.parse(process.env.PLAN || '[]')
@@ -24,6 +24,7 @@ const run = (cmd, args, cwd) =>
 
 const gedaan = []
 const mislukt = []
+let composerLock = false
 
 // Per lockfile, niet per project: een repo met workspaces heeft er meerdere, en een
 // override in de root doet niets voor een boom die een niveau lager hangt.
@@ -33,6 +34,7 @@ for (const item of plan) (perLock[item.lock] ||= []).push(item)
 for (const [lock, items] of Object.entries(perLock)) {
   const dir = dirname(lock) === '.' ? process.cwd() : join(process.cwd(), dirname(lock))
   const composer = lock.endsWith('composer.lock')
+  composerLock = composerLock || composer
   const manifestNaam = composer ? 'composer.json' : 'package.json'
   const manifest = JSON.parse(readFileSync(join(dir, manifestNaam), 'utf8'))
 
@@ -127,6 +129,39 @@ function vergelijk(a, b) {
   }
 
   return 0
+}
+
+// Wat niet bewezen is, hoort ook niet in de wijziging te blijven staan.
+//
+// Een override die niets uithaalt, verandert wel package.json. Zo ontstond bij cides een
+// voorstel met nul pakketten: de tak droeg een regel die niets deed, en de uitslag zei
+// terecht dat er niets bewezen was. Nu draaien we die regels terug en installeren opnieuw,
+// zodat wat overblijft precies is wat werkt.
+if (blijft.length && !composerLock) {
+  for (const [lock, items] of Object.entries(perLock)) {
+    const dir = dirname(lock) === '.' ? process.cwd() : join(process.cwd(), dirname(lock))
+    const pkgPath = join(dir, 'package.json')
+    if (!existsSync(pkgPath)) continue
+
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+    let geraakt = false
+    for (const b of blijft) {
+      if (pkg.overrides?.[b.pkg]) {
+        delete pkg.overrides[b.pkg]
+        geraakt = true
+      }
+    }
+    if (!geraakt) continue
+
+    if (!Object.keys(pkg.overrides).length) delete pkg.overrides
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n')
+    try {
+      run('npm', ['install', '--no-audit', '--no-fund'], dir)
+    } catch {
+      // Lukt het opnieuw installeren niet, dan staat de tak er nog met een regel die niets
+      // doet. Dat is zichtbaar in de uitslag, en zichtbaar is beter dan stil.
+    }
+  }
 }
 
 const uitslag = {

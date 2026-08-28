@@ -113,5 +113,9 @@ Als artifact `elixir-fix` met één `uitslag.json`:
 }
 ```
 
+Wat in `unproven` belandt, wordt ook teruggedraaid: een override die niets uithaalt blijft
+niet in `package.json` staan. Anders krijg je een voorstel met nul pakketten en één regel
+die niets doet.
+
 `unproven` is het bewijs dat ontbrak: het pakket werd bijgewerkt, maar de lockfile draagt de
 oude versie nog. Beweren is niet bewijzen.

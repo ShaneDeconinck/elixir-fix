@@ -61,7 +61,13 @@ Draait je project anders, dan zeg je dat erbij:
       install: npm ci
       test: npm run test:unit
       build: ''          # leeg = geen build
+      env: |             # publieke configuratie die de build nodig heeft
+        PUBLIC_API_URL=https://api.example.com
 ```
+
+`env` is voor publieke configuratie, niet voor geheimen: wat daar staat komt uit het
+workflow-bestand van je project en is dus voor iedereen leesbaar. Een echte sleutel hoort in
+de secrets van de repo, en die heeft deze workflow niet nodig.
 
 ## De poorten
 

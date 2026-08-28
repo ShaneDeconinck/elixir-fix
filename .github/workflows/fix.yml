@@ -38,6 +38,15 @@ on:
         required: false
         default: 'npm run build'
         type: string
+      env:
+        description: |
+          Regels KEY=value die de build nodig heeft. Publieke configuratie, geen geheimen:
+          wat hier staat komt uit het workflow-bestand van het project en is dus voor
+          iedereen leesbaar. Een echte sleutel hoort in de secrets van de repo, en die
+          heeft deze workflow niet nodig.
+        required: false
+        default: ''
+        type: string
     outputs:
       uitslag:
         description: 'Wat er gebeurde, als json'
@@ -73,6 +82,14 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           cache: npm
+
+      # Wat de build nodig heeft. Via een variabele en niet rechtstreeks in de regel: zo
+      # blijft de inhoud data en wordt ze nooit shell.
+      - name: Omgeving zetten
+        if: inputs.env != ''
+        env:
+          OMGEVING: ${{ inputs.env }}
+        run: printf '%s\n' "$OMGEVING" >> "$GITHUB_ENV"
 
       - run: ${{ inputs.install }}
 

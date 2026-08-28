@@ -19,9 +19,14 @@ on:
         required: true
         type: string
       node-version:
-        description: 'De node-versie waarop dit project bouwt'
+        description: 'De node-versie waarop dit project bouwt, of leeg voor een project zonder node'
         required: false
         default: '24'
+        type: string
+      php-version:
+        description: 'De php-versie, of leeg voor een project zonder php'
+        required: false
+        default: ''
         type: string
       install:
         description: 'Hoe dit project zijn pakketten installeert'
@@ -79,9 +84,19 @@ jobs:
           path: .elixir-fix
 
       - uses: actions/setup-node@v4
+        if: inputs.node-version != ''
         with:
           node-version: ${{ inputs.node-version }}
           cache: npm
+
+      # Alleen waar het nodig is. Een Laravel-project heeft php nodig en vaak ook node; een
+      # Astro-site heeft aan php niets, en een runner die het toch installeert is een minuut
+      # per run die niemand terugkrijgt.
+      - uses: shivammathur/setup-php@v2
+        if: inputs.php-version != ''
+        with:
+          php-version: ${{ inputs.php-version }}
+          tools: composer
 
       # Wat de build nodig heeft. Via een variabele en niet rechtstreeks in de regel: zo
       # blijft de inhoud data en wordt ze nooit shell.

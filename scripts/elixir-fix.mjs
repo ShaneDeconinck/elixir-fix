@@ -32,7 +32,9 @@ for (const item of plan) (perLock[item.lock] ||= []).push(item)
 
 for (const [lock, items] of Object.entries(perLock)) {
   const dir = dirname(lock) === '.' ? process.cwd() : join(process.cwd(), dirname(lock))
-  const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  const composer = lock.endsWith('composer.lock')
+  const manifestNaam = composer ? 'composer.json' : 'package.json'
+  const manifest = JSON.parse(readFileSync(join(dir, manifestNaam), 'utf8'))
 
   // Welke versies van dit pakket staan er in de boom? Een override geldt voor ALLE
   // kopieën, dus dat is de vraag die vooraf gesteld hoort te worden.
@@ -45,15 +47,17 @@ for (const [lock, items] of Object.entries(perLock)) {
     // Direct installeren, transitief overriden. Een transitief pakket als directe
     // afhankelijkheid bijzetten liegt over wat het project gebruikt, lang nadat het lek
     // vergeten is.
-    const direct = ['dependencies', 'devDependencies', 'optionalDependencies']
-      .some((sleutel) => manifest[sleutel]?.[item.pkg])
+    const velden = composer
+      ? ['require', 'require-dev']
+      : ['dependencies', 'devDependencies', 'optionalDependencies']
+    const direct = velden.some((sleutel) => manifest[sleutel]?.[item.pkg])
 
     // Meerdere majors van hetzelfde pakket: dan zet een override ze allemaal op één versie,
     // en de andere lijn krijgt een stille downgrade. Zo brak brace-expansion de build van de
     // frituur: 5.x werd teruggezet naar 2.x, en die consumenten verwachten een export die
     // daar niet bestaat. Dit is werk voor een mens, geen boom om door te drukken.
     const majors = new Set(versiesVan(item.pkg).map((v) => v.split('.')[0]))
-    if (!direct && majors.size > 1) {
+    if (!composer && !direct && majors.size > 1) {
       mislukt.push({
         pkg: item.pkg,
         why: `de boom draagt ${[...majors].join(' en ')}.x van dit pakket; een override zou ze allemaal verzetten`,
@@ -62,7 +66,14 @@ for (const [lock, items] of Object.entries(perLock)) {
     }
 
     try {
-      if (direct) {
+      if (composer) {
+        // -W is geen doordrukken maar een ruimere zoekruimte: zonder weigert composer met
+        // "fixed to X by a partial update". Composer kent geen overrides, dus een
+        // transitief pakket wordt bijgewerkt en niet gepind.
+        run('composer', direct
+          ? ['require', '-W', '--no-interaction', `${item.pkg}:^${item.to}`]
+          : ['update', '-W', '--no-interaction', item.pkg], dir)
+      } else if (direct) {
         run('npm', ['install', '--no-audit', '--no-fund', `${item.pkg}@${item.to}`], dir)
       } else {
         const pkgPath = join(dir, 'package.json')
@@ -81,15 +92,41 @@ for (const [lock, items] of Object.entries(perLock)) {
 }
 
 // Bewijzen, niet beweren: de lockfile teruglezen. Staat de oude versie er nog, dan telt de
-// update niet, hoe vrolijk npm ook deed.
+// update niet, hoe vrolijk het commando ook deed.
 const blijft = []
 for (const item of gedaan) {
-  const lock = existsSync(item.lock) ? readFileSync(item.lock, 'utf8') : ''
-  const versies = [...lock.matchAll(new RegExp(`"node_modules/${item.pkg.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&')}"[^}]*?"version": "([^"]+)"`, 'g'))]
-    .map((m) => m[1])
-  if (versies.length && !versies.includes(item.to)) {
+  if (!existsSync(item.lock)) continue
+  const lock = readFileSync(item.lock, 'utf8')
+  const veilig = item.pkg.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&')
+
+  const versies = item.lock.endsWith('composer.lock')
+    ? [...JSON.parse(lock).packages ?? [], ...JSON.parse(lock)['packages-dev'] ?? []]
+        .filter((p) => p.name === item.pkg)
+        // composer schrijft v7.29.0 waar het advies 7.29.0 zegt.
+        .map((p) => String(p.version).replace(/^v/, ''))
+    : [...lock.matchAll(new RegExp(`"node_modules/(?:[^"]*/)?${veilig}"[^}]*?"version": "([^"]+)"`, 'g'))]
+        .map((m) => m[1])
+
+  // Bij composer telt "minstens zo nieuw": require ^7.29 mag 7.29.4 opleveren, en dat is
+  // geen mislukking maar precies de bedoeling van een caret.
+  const goed = item.lock.endsWith('composer.lock')
+    ? versies.every((v) => vergelijk(v, item.to) >= 0)
+    : versies.includes(item.to)
+
+  if (versies.length && !goed) {
     blijft.push({ pkg: item.pkg, why: `lockfile draagt ${versies.join(', ')} en niet ${item.to}` })
   }
+}
+
+/** Versies vergelijken zonder afhankelijkheid: -1, 0 of 1. */
+function vergelijk(a, b) {
+  const stukken = (v) => String(v).split('.').map((n) => parseInt(n, 10) || 0)
+  const [x, y] = [stukken(a), stukken(b)]
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0) ? 1 : -1
+  }
+
+  return 0
 }
 
 const uitslag = {

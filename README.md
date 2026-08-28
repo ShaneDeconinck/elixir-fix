@@ -65,6 +65,22 @@ Draait je project anders, dan zeg je dat erbij:
         PUBLIC_API_URL=https://api.example.com
 ```
 
+Een PHP-project zegt het zo:
+
+```yaml
+    with:
+      plan: ${{ inputs.plan }}
+      php-version: '8.4'
+      node-version: ''            # leeg = geen node
+      install: composer install --no-interaction --no-progress
+      test: php artisan test
+      build: ''
+```
+
+Composer kent geen overrides: een transitief pakket wordt bijgewerkt met `update -W`, niet
+gepind. En het teruglezen telt daar "minstens zo nieuw", want `require ^7.29` mag 7.29.4
+opleveren; dat is geen mislukking maar precies wat een caret betekent.
+
 `env` is voor publieke configuratie, niet voor geheimen: wat daar staat komt uit het
 workflow-bestand van je project en is dus voor iedereen leesbaar. Een echte sleutel hoort in
 de secrets van de repo, en die heeft deze workflow niet nodig.

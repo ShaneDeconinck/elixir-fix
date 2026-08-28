@@ -147,12 +147,24 @@ jobs:
           docker run -d --name elixir-mysql \
             -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE="$DB" \
             -p 3306:3306 mysql:8 >/dev/null
-          # Wachten tot ze antwoordt: een testrun die op een halfwakkere databank botst,
-          # faalt om een reden die niets met de update te maken heeft.
+          # Wachten tot ze ECHT antwoordt, met een query en niet met een ping.
+          #
+          # MySQL beantwoordt een ping al tijdens zijn initialisatie, wanneer het
+          # root-wachtwoord nog niet gezet is. De lus brak daardoor te vroeg af en het
+          # inlezen van het schema kreeg "Access denied" - een fout die eruitziet als een
+          # verkeerd wachtwoord terwijl het een kwestie van seconden was.
+          klaar=""
           for i in $(seq 1 60); do
-            docker exec elixir-mysql mysqladmin ping -proot --silent >/dev/null 2>&1 && break
+            if docker exec elixir-mysql mysql -uroot -proot -e "SELECT 1" >/dev/null 2>&1; then
+              klaar="ja"
+              break
+            fi
             sleep 2
           done
+          if [ -z "$klaar" ]; then
+            echo "de databank kwam niet op binnen twee minuten"
+            exit 1
+          fi
           if [ -n "$SCHEMA" ] && [ -f "$SCHEMA" ]; then
             docker exec -i elixir-mysql mysql -uroot -proot "$DB" < "$SCHEMA"
           fi

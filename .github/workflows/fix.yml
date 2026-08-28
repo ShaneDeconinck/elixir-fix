@@ -33,6 +33,15 @@ on:
         required: false
         default: 'npm install --no-audit --no-fund'
         type: string
+      prepare:
+        description: |
+          Wat er na het installeren moet gebeuren voor de tests kunnen draaien. Een
+          Laravel-project heeft bijvoorbeeld een omgevingsbestand en een sleutel nodig;
+          zonder die stappen staan de tests rood om een reden die niets met de update te
+          maken heeft, en weigert de nulmeting terecht.
+        required: false
+        default: ''
+        type: string
       test:
         description: 'Het commando dat de rechter is'
         required: false
@@ -107,6 +116,10 @@ jobs:
         run: printf '%s\n' "$OMGEVING" >> "$GITHUB_ENV"
 
       - run: ${{ inputs.install }}
+
+      - name: Klaarzetten
+        if: inputs.prepare != ''
+        run: ${{ inputs.prepare }}
 
       # De nulmeting. Staan de tests al rood vóór de wijziging, dan is er geen rechter
       # beschikbaar en gebeurt er niets: anders veroordeelt de update een fout die er al was.

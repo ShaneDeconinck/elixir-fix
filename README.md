@@ -71,10 +71,12 @@ Een PHP-project zegt het zo:
     with:
       plan: ${{ inputs.plan }}
       php-version: '8.4'
-      node-version: ''            # leeg = geen node
-      install: composer install --no-interaction --no-progress
+      install: composer install --no-interaction --no-progress && npm ci
+      prepare: |                  # wat er moet gebeuren voor de tests kunnen draaien
+        cp env.example .env
+        php artisan key:generate
       test: php artisan test
-      build: ''
+      build: npm run prod
 ```
 
 Composer kent geen overrides: een transitief pakket wordt bijgewerkt met `update -W`, niet

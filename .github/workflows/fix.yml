@@ -198,6 +198,23 @@ jobs:
           UITSLAG: ${{ steps.fix.outputs.uitslag }}
         run: |
           set -euo pipefail
+
+          # Eerst de vraag die telt: is er een pakket bijgewerkt?
+          #
+          # Dat de lockfile veranderde is geen antwoord. npm herschrijft hem ook als er
+          # niets bijgewerkt is - hij dedupliceert, snoeit, herordent - en dan staat er een
+          # voorstel met de titel "0 pakket(ten) bijwerken" en een diff van vier regels ruis.
+          # Dat gebeurde bij cides: js-yaml werd terecht geweigerd omdat de boom twee majors
+          # draagt, en het voorstel ging alsnog open.
+          #
+          # Een voorstel dat niets voorstelt kost precies wat een voorstel waard is: iemand
+          # opent het, leest het, en leert dat hij deze afzender niet hoeft te vertrouwen.
+          bijgewerkt="$(node -e 'const u = JSON.parse(process.env.UITSLAG || "{}"); console.log((u.applied || []).length)')"
+          if [ "$bijgewerkt" = "0" ]; then
+            echo "geen enkel pakket bijgewerkt, dus er is niets voor te stellen"
+            exit 0
+          fi
+
           # Sterretjes en niet **/: een pathspec met ** faalt als hij niets vindt, terwijl
           # *package.json op elke diepte matcht en zwijgt als er niets is.
           if git diff --quiet -- '*package.json' '*package-lock.json' '*composer.json' '*composer.lock'; then

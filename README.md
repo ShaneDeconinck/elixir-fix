@@ -133,6 +133,11 @@ Als artifact `elixir-fix` met één `uitslag.json`:
 }
 ```
 
+Er gaat alleen een tak omhoog als er echt een pakket bijgewerkt is. Dat de lockfile
+veranderde is geen bewijs: npm herschrijft hem ook zonder dat er iets bijgewerkt is, en dan
+zou er een voorstel opengaan met de titel "0 pakket(ten) bijwerken" en vier regels ruis
+eronder. Dat is precies zoveel waard als het klinkt.
+
 Wat in `unproven` belandt, wordt ook teruggedraaid: een override die niets uithaalt blijft
 niet in `package.json` staan. Anders krijg je een voorstel met nul pakketten en één regel
 die niets doet.
